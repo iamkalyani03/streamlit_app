@@ -5,51 +5,72 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
-import time
+import time, requests, sys
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
 MOENGAGE_URL = "https://dashboard-03.moengage.com/"
 SMS_CREATE_BASE_URL = "https://dashboard-03.moengage.com/v4/#/sms/create?type=one-time&draftId="
-USERNAME = "sahil@0101.today"       # Replace with your MoEngage email
-PASSWORD = "Patson@0101"            # Replace with your MoEngage password
-WORKSPACE = "Collections_TC"        # Your MoEngage workspace name
-
-DRAFT_IDS = [
-    "68885b612a3c4eb3c36713cd"
-]  # Add more draft IDs if needed
-
+USERNAME = "sahil@0101.today"
+PASSWORD = "Patson@0101"
+WORKSPACE = "Collections_TC"
+DRAFT_IDS = ["68885b612a3c4eb3c36713cd"]
 OUTPUT_FILE = f"{WORKSPACE}_campaigns_headless.csv"
 
 # ==========================================
-# CHROME SETUP — HEADLESS STABLE
+# CHROME OPTIONS — HEADLESS STABLE
 # ==========================================
 chrome_options = Options()
-chrome_options.add_argument("--headless=new")                # modern headless
+chrome_options.add_argument("--headless=new")                 # modern headless
 chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
-chrome_options.add_argument("--disable-software-rasterizer")  # prevents renderer crash
+chrome_options.add_argument("--disable-software-rasterizer")
 chrome_options.add_argument("--disable-extensions")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
 chrome_options.add_experimental_option("useAutomationExtension", False)
-chrome_options.add_argument("--no-proxy-server")  # ✅ added
-#chrome_options.add_argument("--remote-debugging-port=9222")  # optional but stabilizes headless
+chrome_options.add_argument("--no-proxy-server")
+chrome_options.add_argument(
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+)
 
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-print(" Chrome session started:", driver.capabilities.get("browserVersion"))
-wait = WebDriverWait(driver, 10)
+# ==========================================
+# INIT DRIVER WITH RETRIES
+# ==========================================
+def init_driver(retries=3, delay=3):
+    for i in range(retries):
+        try:
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+            print(" Chrome session started:", driver.capabilities.get("browserVersion"))
+            return driver
+        except WebDriverException as e:
+            print(f" ChromeDriver init failed (attempt {i+1}/{retries}): {e}")
+            time.sleep(delay)
+    sys.exit("Failed to start ChromeDriver after retries.")
+
+driver = init_driver()
+wait = WebDriverWait(driver, 15)
+
+# ==========================================
+# INTERNET CHECK
+# ==========================================
+try:
+    r = requests.get("https://www.google.com", timeout=10)
+    print(" Internet OK — status:", r.status_code)
+except Exception as e:
+    print(" Internet check failed:", e)
 
 # ==========================================
 # HELPER FUNCTION
 # ==========================================
 def safe_get(xpath, attr=None, retries=3, delay=2):
-    """Safe getter with retries"""
     for _ in range(retries):
         try:
             elem = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
@@ -64,44 +85,43 @@ def safe_get(xpath, attr=None, retries=3, delay=2):
 # ==========================================
 # LOGIN PROCESS
 # ==========================================
-print("Logging into MoEngage...")
-driver.get(MOENGAGE_URL)
+def login():
+    print(" Logging into MoEngage...")
+    driver.get(MOENGAGE_URL)
+    try:
+        wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys(USERNAME)
+        driver.find_element(By.ID, "password").send_keys(PASSWORD)
+        driver.find_element(By.ID, "password").send_keys(Keys.RETURN)
+        print("Credentials submitted. Waiting for dashboard...")
+        time.sleep(5)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        print(" Logged in successfully!\n")
+    except Exception as e:
+        print(f" Login failed: {e}")
+        driver.quit()
+        sys.exit(1)
 
-try:
-    wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys(USERNAME)
-    driver.find_element(By.ID, "password").send_keys(PASSWORD)
-    driver.find_element(By.ID, "password").send_keys(Keys.RETURN)
-    print("Credentials submitted. Waiting for dashboard...")
-    time.sleep(6)
-    wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-    print(" Logged in successfully!\n")
-except Exception as e:
-    print(f" Login failed: {e}")
-    driver.quit()
-    exit()
+login()
 
 # ==========================================
-# OPEN DRAFT LINKS & EXTRACT DATA
+# EXTRACT DATA FROM DRAFTS
 # ==========================================
 results = []
-
 for draft_id in DRAFT_IDS:
     print(f" Opening Draft: {draft_id}")
     url = f"{SMS_CREATE_BASE_URL}{draft_id}"
-
     try:
         driver.get(url)
-        time.sleep(5)  # allow JS to render
+        time.sleep(5)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")  # force lazy-load
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
     except Exception as e:
-        print(f" Failed to load draft {draft_id}: {e}")
-        results.append({"Draft ID": draft_id, "Status": f"Failed to load: {e}"})
+        print(f"Failed to load draft {draft_id}: {e}")
+        results.append({"Draft ID": draft_id, "Status": f"Failed: {e}"})
         continue
 
     data = {"Draft ID": draft_id, "Status": "Opened successfully"}
-
     # ---------- TARGET USERS ----------
     data["Campaign Name"] = safe_get("//input[@placeholder='Campaign Name']", "value")
     data["User Attribute"] = safe_get("//span[@class='mds-dropdown__trigger__inner__single--value']")
@@ -141,7 +161,7 @@ for draft_id in DRAFT_IDS:
     print(f" Extracted data for draft {draft_id}")
 
 # ==========================================
-# SAVE RESULTS TO CSV
+# SAVE RESULTS
 # ==========================================
 if results:
     df = pd.DataFrame(results)
