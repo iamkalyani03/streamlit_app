@@ -1,11 +1,10 @@
+# Use selenium + chromium base
 FROM seleniarm/standalone-chromium:latest
 
 USER root
 
-# Install Python + venv + necessary tools
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip python3-venv wget unzip fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+# Install Python + venv
+RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY . /app
@@ -17,7 +16,7 @@ RUN python3 -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Streamlit configuration
+# Streamlit config
 RUN mkdir -p ~/.streamlit && \
     echo "\
 [browser]\n\
@@ -30,8 +29,6 @@ port = 8501\n\
 address = \"0.0.0.0\"\n\
 " > ~/.streamlit/config.toml
 
-# Expose Render port
 EXPOSE 8501
 
-# Use dynamic port on Render, fallback to 8501 locally
 CMD ["bash", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]

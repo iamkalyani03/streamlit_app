@@ -1,12 +1,15 @@
 import logging
+import os
+import sys
+import time
+import pandas as pd
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import pandas as pd
-import time, os, sys, requests
 
 # ==========================================
 # LOGGING SETUP
@@ -19,7 +22,7 @@ logging.basicConfig(
 logging.info("=== Starting MoEngage Headless Scraper ===")
 
 # ==========================================
-# CONFIGURATION (read from environment)
+# CONFIGURATION
 # ==========================================
 MOENGAGE_URL = "https://dashboard-03.moengage.com/"
 SMS_CREATE_BASE_URL = "https://dashboard-03.moengage.com/v4/#/sms/create?type=one-time&draftId="
@@ -28,6 +31,7 @@ USERNAME = os.getenv("MOENGAGE_EMAIL", "").strip()
 PASSWORD = os.getenv("MOENGAGE_PASSWORD", "").strip()
 WORKSPACE = os.getenv("WORKSPACE", "Collections_TC").strip()
 DRAFT_IDS = [d.strip() for d in os.getenv("DRAFT_IDS", "").split(",") if d.strip()]
+OTP_CODE = os.getenv("OTP_CODE", "").strip()  # Step 3: OTP
 OUTPUT_FILE = f"{WORKSPACE}_campaigns_headless.csv"
 
 if not USERNAME or not PASSWORD or not DRAFT_IDS:
@@ -38,7 +42,7 @@ logging.info(f"Workspace: {WORKSPACE}")
 logging.info(f"Draft IDs: {DRAFT_IDS}")
 
 # ==========================================
-# CHROME OPTIONS — HEADLESS CONFIG
+# CHROME OPTIONS — HEADLESS
 # ==========================================
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
@@ -74,7 +78,6 @@ except Exception as e:
 # SAFE ELEMENT FETCHER
 # ==========================================
 def safe_get(xpath, attr=None, retries=3, delay=2):
-    """Utility to safely get element text or attribute with retries."""
     for _ in range(retries):
         try:
             elem = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
@@ -87,36 +90,50 @@ def safe_get(xpath, attr=None, retries=3, delay=2):
     return "N/A"
 
 # ==========================================
-# LOGIN PROCESS
+# LOGIN PROCESS + OTP VERIFICATION
 # ==========================================
+login_status = "Failed"
+
 def login():
+    global login_status
     logging.info("Attempting login...")
-    print(" Opening MoEngage login page...")
     try:
         driver.get(MOENGAGE_URL)
         wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys(USERNAME)
         driver.find_element(By.ID, "password").send_keys(PASSWORD)
         driver.find_element(By.ID, "password").send_keys(Keys.RETURN)
         time.sleep(5)
+
+        # Step 3: OTP verification (if provided)
+        if OTP_CODE:
+            try:
+                otp_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@id='otp_code']")))  # Replace XPath if needed
+                otp_input.send_keys(OTP_CODE)
+                otp_input.send_keys(Keys.RETURN)
+                time.sleep(5)
+                logging.info("OTP verified successfully.")
+            except Exception as e:
+                logging.warning(f"OTP input failed or skipped: {e}")
+
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        logging.info(" Login successful.")
-        print(" Login successful on MoEngage!")
+        logging.info("Login successful.")
+        login_status = "Success"
+        print("Login successful!")
     except Exception as e:
-        logging.error(f" Login failed: {e}")
-        print(f" Login failed: {e}")
+        logging.error(f"Login failed: {e}")
+        login_status = f"Failed: {e}"
         driver.quit()
         sys.exit(1)
 
-# Perform login
 login()
 
 # ==========================================
-# SCRAPE EACH DRAFT
+# SCRAPE DRAFTS
 # ==========================================
 results = []
+
 for draft_id in DRAFT_IDS:
     logging.info(f"Opening Draft: {draft_id}")
-    print(f" Opening draft ID: {draft_id}")
     url = f"{SMS_CREATE_BASE_URL}{draft_id}"
     try:
         driver.get(url)
@@ -126,24 +143,33 @@ for draft_id in DRAFT_IDS:
         time.sleep(2)
     except Exception as e:
         logging.error(f"Failed to open draft {draft_id}: {e}")
-        print(f" Failed to open draft {draft_id}: {e}")
-        results.append({"Draft ID": draft_id, "Status": f"Failed to open: {e}"})
+        results.append({
+            "Draft ID": draft_id,
+            "Login Status": login_status,
+            "Status": f"Failed to open: {e}",
+            "Campaign Name": "N/A",
+            "User Attribute": "N/A",
+            "Campaign Tags": "N/A",
+            "SMS Sender": "N/A",
+            "Template ID": "N/A",
+            "Message Body": "N/A"
+        })
         continue
 
-    data = {"Draft ID": draft_id, "Status": "Opened successfully"}
-    data["Campaign Name"] = safe_get("//input[@placeholder='Campaign Name']", "value")
-    data["User Attribute"] = safe_get("//span[@class='mds-dropdown__trigger__inner__single--value']")
-    data["Campaign Tags"] = ", ".join(
-        [t.text.strip() for t in driver.find_elements(By.XPATH,
-            "//div[@class='mds-input__input--tags__list--item']/span[1]")]
-    ) or "N/A"
-    data["SMS Sender"] = safe_get("//div[@placeholder='Select a connector']//span[@class='mds-dropdown__trigger__inner__single--value']")
-    data["Template ID"] = safe_get("//input[@id='template_id']", "value")
-    data["Message Body"] = safe_get("//div[@id='personalization_container']")
+    data = {
+        "Draft ID": draft_id,
+        "Login Status": login_status,
+        "Status": "Opened successfully",
+        "Campaign Name": safe_get("//input[@placeholder='Campaign Name']", "value"),
+        "User Attribute": safe_get("//span[@class='mds-dropdown__trigger__inner__single--value']"),
+        "Campaign Tags": ", ".join([t.text.strip() for t in driver.find_elements(By.XPATH, "//div[@class='mds-input__input--tags__list--item']/span[1]")]) or "N/A",
+        "SMS Sender": safe_get("//div[@placeholder='Select a connector']//span[@class='mds-dropdown__trigger__inner__single--value']"),
+        "Template ID": safe_get("//input[@id='template_id']", "value"),
+        "Message Body": safe_get("//div[@id='personalization_container']")
+    }
 
     results.append(data)
-    logging.info(f" Extracted draft: {draft_id}")
-    print(f" Extracted draft ID: {draft_id}")
+    logging.info(f"Extracted draft: {draft_id}")
 
 # ==========================================
 # SAVE RESULTS
@@ -152,11 +178,11 @@ if results:
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_FILE, index=False, encoding="utf-8")
     logging.info(f"Saved results to {OUTPUT_FILE}")
-    print(f" Saved results to {OUTPUT_FILE}")
+    print(f"Saved results to {OUTPUT_FILE}")
 else:
     logging.warning("No data extracted — check login or draft IDs.")
-    print(" No data extracted — check login or draft IDs.")
+    print("No data extracted — check login or draft IDs.")
 
 driver.quit()
 logging.info("Script completed successfully.")
-print(" Script completed successfully.")
+print("Script completed successfully.")

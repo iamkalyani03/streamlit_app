@@ -5,7 +5,7 @@ import os
 import sys
 
 st.set_page_config(page_title="MoEngage Campaign Extractor", layout="centered")
-st.title(" MoEngage Campaign Extractor (Headless Selenium)")
+st.title("MoEngage Campaign Extractor (Headless Selenium)")
 
 # ==========================================
 # SESSION STATE
@@ -16,14 +16,14 @@ for k in ["email", "password", "db_name", "draft_ids_text", "otp"]:
     st.session_state.setdefault(k, "")
 
 # ==========================================
-# STEP 1 — LOGIN
+# STEP 1 — LOGIN CREDENTIALS
 # ==========================================
 if st.session_state.step == 1:
     st.subheader("Step 1 — Login Credentials")
     with st.form("login_form"):
         email = st.text_input("Email", value=st.session_state.email)
         password = st.text_input("Password", type="password", value=st.session_state.password)
-        submitted = st.form_submit_button("Next ")
+        submitted = st.form_submit_button("Next")
     if submitted:
         if email and password:
             st.session_state.email = email
@@ -31,7 +31,7 @@ if st.session_state.step == 1:
             st.session_state.step = 2
             st.rerun()
         else:
-            st.warning("Please enter both email and password.")
+            st.warning("Enter both email and password.")
 
 # ==========================================
 # STEP 2 — WORKSPACE & DRAFT IDS
@@ -39,33 +39,23 @@ if st.session_state.step == 1:
 elif st.session_state.step == 2:
     st.subheader("Step 2 — Workspace & Draft IDs")
 
-    db_options = [
-        "Collections_TC", "Tata Capital", "TataCapital_UAT",
-        "Services_TC", "Wealth_TC", "Moneyfy"
-    ]
-
+    db_options = ["Collections_TC", "Tata Capital", "TataCapital_UAT", "Services_TC", "Wealth_TC", "Moneyfy"]
     db_name = st.selectbox(
         "Select Workspace",
         db_options,
-        index=db_options.index(st.session_state.db_name)
-        if st.session_state.db_name in db_options else 0
+        index=db_options.index(st.session_state.db_name) if st.session_state.db_name in db_options else 0
     )
-
-    draft_ids = st.text_area(
-        "Draft IDs (comma-separated)",
-        value=st.session_state.draft_ids_text,
-        help="Example: 68a87cca3bf0adc12258d2ad, 68ad7bc01315f645e808598a"
-    )
+    draft_ids = st.text_area("Draft IDs (comma-separated)", value=st.session_state.draft_ids_text)
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" Back"):
+        if st.button("Back"):
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("Next "):
+        if st.button("Next"):
             if not draft_ids.strip():
-                st.warning("Please enter at least one Draft ID.")
+                st.warning("Enter at least one Draft ID.")
             else:
                 st.session_state.db_name = db_name
                 st.session_state.draft_ids_text = draft_ids
@@ -76,16 +66,16 @@ elif st.session_state.step == 2:
 # STEP 3 — OTP VERIFICATION
 # ==========================================
 elif st.session_state.step == 3:
-    st.subheader("Step 3 — Two-Factor Authentication")
-    st.write("Enter the 6-digit OTP from Google Authenticator.")
+    st.subheader("Step 3 — OTP Verification")
+    st.write("Enter the OTP sent by MoEngage for login verification:")
 
     with st.form("otp_form"):
-        otp_code = st.text_input("Authenticator Code (6 digits)", max_chars=6, value=st.session_state.otp)
+        otp_code = st.text_input("OTP (6 digits)", max_chars=6, value=st.session_state.otp)
         col1, col2 = st.columns(2)
         with col1:
-            back = st.form_submit_button(" Back")
+            back = st.form_submit_button("Back")
         with col2:
-            next_btn = st.form_submit_button("Verify & Continue ")
+            next_btn = st.form_submit_button("Verify & Continue")
 
     if back:
         st.session_state.step = 2
@@ -96,14 +86,13 @@ elif st.session_state.step == 3:
             st.session_state.step = 4
             st.rerun()
         else:
-            st.warning("Please enter a valid 6-digit OTP code.")
+            st.warning("Enter a valid 6-digit OTP.")
 
 # ==========================================
 # STEP 4 — RUN EXTRACTION
 # ==========================================
 elif st.session_state.step == 4:
     st.subheader("Step 4 — Run Extraction")
-
     csv_filename = f"{st.session_state.db_name}_campaigns_headless.csv"
 
     env = os.environ.copy()
@@ -111,9 +100,9 @@ elif st.session_state.step == 4:
     env["MOENGAGE_PASSWORD"] = st.session_state.password
     env["WORKSPACE"] = st.session_state.db_name
     env["DRAFT_IDS"] = st.session_state.draft_ids_text
-    env["OTP_CODE"] = st.session_state.otp  # optional for later use
+    env["OTP_CODE"] = st.session_state.otp
 
-    with st.spinner("Running headless Chrome... please wait (2–3 mins)"):
+    with st.spinner("Running headless Chrome... this may take 2–3 mins"):
         try:
             process = subprocess.run(
                 [sys.executable, "selenium_headless.py"],
@@ -123,8 +112,6 @@ elif st.session_state.step == 4:
                 timeout=600
             )
 
-            st.success(" Extraction finished!")
-
             if process.stdout:
                 st.text_area("Logs (stdout):", process.stdout, height=250)
             if process.stderr:
@@ -133,18 +120,19 @@ elif st.session_state.step == 4:
 
             if os.path.exists(csv_filename):
                 df = pd.read_csv(csv_filename)
+                st.success("Extraction finished!")
                 st.dataframe(df)
                 st.download_button(
-                    " Download CSV",
+                    "Download CSV",
                     df.to_csv(index=False).encode("utf-8"),
                     file_name=csv_filename
                 )
             else:
-                st.error(" CSV not found — check logs above.")
+                st.error("CSV not found — check logs above.")
 
         except subprocess.TimeoutExpired:
-            st.error(" Process timed out.")
+            st.error("Process timed out.")
         except Exception as e:
             st.error(f"Unexpected error: {e}")
 
-    st.button(" Run Again", on_click=lambda: st.session_state.update({"step": 1}))
+    st.button("Run Again", on_click=lambda: st.session_state.update({"step": 1}))
