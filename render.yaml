@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: moengage-extractor
+    env: docker
+    plan: free
+    autoDeploy: true
+    secreteEnvs: false
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # DO NOT store sensitive secrets in this file; use the Render UI for secrets below

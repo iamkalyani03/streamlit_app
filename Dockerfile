@@ -1,44 +1,34 @@
-# ==========================================
-# Base image
-# ==========================================
-FROM python:3.10-slim
+FROM seleniarm/standalone-chromium:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PIP_ROOT_USER_ACTION=ignore
-ENV PYTHONUNBUFFERED=1
+USER root
 
-# ==========================================
-# Install Chrome + dependencies
-# ==========================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget gnupg unzip fonts-liberation libnss3 libasound2 xdg-utils ca-certificates \
-    libxss1 libgdk-pixbuf-2.0-0 libxcomposite1 libxrandr2 libxi6 libatk-bridge2.0-0 libgtk-3-0 \
-    curl xvfb \
-    && mkdir -p /etc/apt/keyrings \
-    && wget -q -O /etc/apt/keyrings/google-linux-signing-key.gpg https://dl.google.com/linux/linux_signing_key.pub \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux-signing-key.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-      > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+# Install Python + venv
+RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*
 
-# ==========================================
-# Set working directory
-# ==========================================
 WORKDIR /app
+COPY . /app
 
-# ==========================================
-# Copy dependencies and install Python packages
-# ==========================================
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Create virtual environment & install dependencies
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
+ && /opt/venv/bin/pip install -r requirements.txt
 
-# ==========================================
-# Copy application code
-# ==========================================
-COPY . .
+ENV PATH="/opt/venv/bin:$PATH"
 
-# ==========================================
-# Expose port for Streamlit (optional)
-# ==========================================
-ENV PORT=10000
-CMD ["streamlit", "run", "app.py", "--server.port=10000", "--server.address=0.0.0.0"]
+# Streamlit configuration
+RUN mkdir -p ~/.streamlit && \
+    echo "\
+[browser]\n\
+gatherUsageStats = false\n\
+[server]\n\
+headless = true\n\
+enableCORS = false\n\
+enableXsrfProtection = false\n\
+port = 8501\n\
+address = \"0.0.0.0\"\n\
+" > ~/.streamlit/config.toml
+
+EXPOSE 8501
+
+#  Use dynamic port on Render, fallback to 8501 locally
+CMD ["bash", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]

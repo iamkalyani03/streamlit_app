@@ -1,7 +1,7 @@
 streamlit==1.39.0
 pandas==2.2.3
-selenium==4.24.0
-webdriver-manager==4.0.2
+selenium==4.25.0
 requests==2.32.3
 playwright==1.48.0
 playwright-stealth==1.0.6
+webdriver-manager==4.0.2
