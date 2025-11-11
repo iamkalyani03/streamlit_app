@@ -4,8 +4,13 @@ services:
     env: docker
     plan: free
     autoDeploy: true
-    secreteEnvs: false
+    secretEnvs: true
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
-      # DO NOT store sensitive secrets in this file; use the Render UI for secrets below
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: STREAMLIT_SERVER_ENABLECORS
+        value: "false"
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: "0.0.0.0"
