@@ -4,7 +4,6 @@ services:
     env: docker
     plan: free
     autoDeploy: true
-    secretEnvs: true
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
@@ -14,3 +13,13 @@ services:
         value: "false"
       - key: STREAMLIT_SERVER_ADDRESS
         value: "0.0.0.0"
+      - key: WORKSPACE
+        value: "Collections_TC"
+      - key: MOENGAGE_EMAIL
+        sync: false
+      - key: MOENGAGE_PASSWORD
+        sync: false
+      - key: DRAFT_IDS
+        sync: false
+      - key: OTP_CODE
+        sync: false
